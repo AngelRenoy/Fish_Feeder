@@ -1,0 +1,63 @@
+services:
+  # =========================================================================
+  # PostgreSQL Database Service
+  # =========================================================================
+  db:
+    image: postgres:16-alpine
+    container_name: fishfeeder_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-fishfeeder}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-fishfeeder}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - fishfeeder_net
+
+  # =========================================================================
+  # FastAPI Backend Service & Web Dashboard
+  # =========================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: fishfeeder_backend
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-fishfeeder}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-fishfeeder}
+      ENVIRONMENT: production
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./dashboard:/app/dashboard:ro
+      - ./backend:/app:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - fishfeeder_net
+
+# Named volume for persistent database storage across container restarts
+volumes:
+  postgres_data:
+    name: fishfeeder_postgres_data
+
+# Internal bridge network for inter-container communication
+networks:
+  fishfeeder_net:
+    driver: bridge
+

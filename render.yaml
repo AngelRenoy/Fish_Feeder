@@ -1,0 +1,77 @@
+## ============================================================================
+## Render Blueprint — IoT Smart Fish Feeder
+## Provisions: PostgreSQL 16 database + FastAPI/Dashboard web service
+## Docs: https://render.com/docs/blueprint-spec
+## ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # FastAPI Backend + Static Dashboard  (Docker-based Web Service)
+  # --------------------------------------------------------------------------
+  - type: web
+    name: fish-feeder-backend
+    runtime: docker
+    # Paths are relative to the REPO ROOT (Fish_Feeder/), not the render.yaml location
+    dockerfilePath: ./fish-feeder-iot/backend/Dockerfile
+    dockerContext: ./fish-feeder-iot
+    plan: free
+    region: singapore   # change to your nearest: oregon, frankfurt, ohio, virginia, singapore
+    healthCheckPath: /health
+    envVars:
+      # ---------- Database connection (auto-filled from the DB below) ----------
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fish-feeder-db
+          property: connectionString      # full postgresql://... URL
+
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: fish-feeder-db
+          property: user
+
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: fish-feeder-db
+          property: password
+
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: fish-feeder-db
+          property: host
+
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: fish-feeder-db
+          property: port
+
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: fish-feeder-db
+          property: database
+
+      # ---------- App settings ------------------------------------------------
+      - key: ENVIRONMENT
+        value: production
+
+      - key: USE_SQLITE
+        value: "false"
+
+      - key: PYTHON_UNBUFFERED
+        value: "1"
+
+      # ---------- ESP32 API Key (copy this value into fish_feeder.ino) --------
+      # Render generates a random secret. After deploy, go to:
+      # Dashboard -> fish-feeder-backend -> Environment -> ESP32_API_KEY
+      # Copy that value and paste it into fish_feeder.ino as ESP32_API_KEY
+      - key: ESP32_API_KEY
+        generateValue: true
+
+# --------------------------------------------------------------------------
+# PostgreSQL 16 Managed Database
+# --------------------------------------------------------------------------
+databases:
+  - name: fish-feeder-db
+    plan: free
+    databaseName: fishfeeder
+    user: fishfeeder_user
+    region: singapore   # must match the web service region above

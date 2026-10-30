@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Fish Feeder IoT Monitoring System</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Chart.js from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo-icon">🐟</div>
+        <div>
+          <h1 class="header-title">Smart Fish Feeder IoT Monitoring System</h1>
+          <p class="header-subtitle">ESP32 &bull; Ultrasonic HC-SR04 &bull; SG90 Servo &bull; PostgreSQL</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="status-pill" id="system-status-pill">
+          <span class="status-dot" id="system-status-dot"></span>
+          <span id="system-status-text">Connecting...</span>
+        </div>
+        <div class="last-sync">
+          <span class="sync-label">Last Updated:</span>
+          <span class="sync-time" id="last-updated-time">--:--:--</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Error/Notice Banner -->
+    <div id="alert-banner" class="alert-banner hidden">
+      <span id="alert-message">Connecting to backend server...</span>
+    </div>
+
+    <!-- Key Metrics Cards Row -->
+    <section class="metrics-grid">
+      <!-- Metric 1: Food Status -->
+      <div class="metric-card card-status">
+        <div class="metric-header">
+          <span class="metric-label">Food Container Status</span>
+          <span class="metric-icon">🥣</span>
+        </div>
+        <div class="metric-body">
+          <div class="status-badge-large status-unknown" id="metric-food-status">
+            Loading...
+          </div>
+          <p class="metric-hint" id="metric-food-hint">Distance-based estimation</p>
+        </div>
+      </div>
+
+      <!-- Metric 2: Distance -->
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">Current Distance</span>
+          <span class="metric-icon">📏</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-value" id="metric-distance">-- <span class="unit">cm</span></div>
+          <p class="metric-hint">HC-SR04 ultrasonic echo</p>
+        </div>
+      </div>
+
+      <!-- Metric 3: Total Readings -->
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">Total Readings Logged</span>
+          <span class="metric-icon">🗄️</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-value" id="metric-total-readings">0</div>
+          <p class="metric-hint">Persisted in PostgreSQL</p>
+        </div>
+      </div>
+
+      <!-- Metric 4: Device & Gate Status -->
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">Active Device & Gate</span>
+          <span class="metric-icon">⚙️</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-value text-small" id="metric-active-device">esp32_feeder_01</div>
+          <p class="metric-hint" id="metric-gate-hint">Gate: Closed (0&deg;)</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Content Grid: Visual Tank + Servo Controls + Live Chart -->
+    <div class="dashboard-grid">
+      <!-- Left Column: Container Graphic & Remote Servo Control -->
+      <div class="grid-column">
+        <!-- Container Tank Visualization Card -->
+        <div class="card visual-tank-card">
+          <h2 class="card-title">Food Level Visualization</h2>
+          <p class="card-subtitle">Estimated capacity based on distance thresholds</p>
+          
+          <div class="tank-visual-wrapper">
+            <div class="tank-container">
+              <div class="sensor-indicator">
+                <span class="sensor-beam"></span>
+                <span class="sensor-label">HC-SR04 Sensor</span>
+              </div>
+              <div class="tank-body">
+                <div class="tank-fluid" id="tank-fill-level" style="height: 0%;">
+                  <span class="tank-percent-label" id="tank-fill-label">--%</span>
+                </div>
+              </div>
+              <div class="tank-ruler">
+                <span class="ruler-mark mark-full" title="1-4 cm">&le;4cm Full</span>
+                <span class="ruler-mark mark-half" title="4-5 cm">5cm Half</span>
+                <span class="ruler-mark mark-fill" title="5-6 cm">6cm Fill</span>
+                <span class="ruler-mark mark-empty" title=">6 cm">&gt;6cm Empty</span>
+              </div>
+            </div>
+
+            <div class="threshold-reference">
+              <h4>Classification Rules:</h4>
+              <ul class="threshold-list">
+                <li><span class="status-dot dot-full"></span> <strong>Full:</strong> 1.0 cm to &lt; 4.0 cm</li>
+                <li><span class="status-dot dot-half"></span> <strong>Half:</strong> 4.0 cm to &lt; 5.0 cm</li>
+                <li><span class="status-dot dot-fill"></span> <strong>Fill:</strong> 5.0 cm to &le; 6.0 cm</li>
+                <li><span class="status-dot dot-empty"></span> <strong>Empty:</strong> &gt; 6.0 cm</li>
+                <li><span class="status-dot dot-error"></span> <strong>Sensor Error:</strong> &lt; 1.0 cm or timeout</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hardware Servo Gate Control Card -->
+        <div class="card servo-card">
+          <h2 class="card-title">SG90 Servo Gate Control</h2>
+          <p class="card-subtitle">Enqueues commands executed and confirmed by ESP32</p>
+
+          <div class="servo-actions">
+            <button class="btn btn-primary" id="btn-feed" onclick="sendCommand('FEED')">
+              <span class="btn-icon">🍽️</span> Feed Now (1s Gate Cycle)
+            </button>
+            <div class="button-group">
+              <button class="btn btn-secondary" id="btn-open" onclick="sendCommand('OPEN')">
+                <span class="btn-icon">🔓</span> Open Gate (90&deg;)
+              </button>
+              <button class="btn btn-secondary" id="btn-close" onclick="sendCommand('CLOSE')">
+                <span class="btn-icon">🔒</span> Close Gate (0&deg;)
+              </button>
+            </div>
+          </div>
+
+          <div class="command-status-box" id="command-status-box">
+            <div class="command-status-header">
+              <span>Command Dispatch Status:</span>
+              <span class="badge" id="cmd-badge">Idle</span>
+            </div>
+            <p class="command-message" id="cmd-message">Ready to send feed command.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Live Chart & Historical Table -->
+      <div class="grid-column">
+        <!-- Live Sensor Readings Chart Card -->
+        <div class="card chart-card">
+          <div class="card-header-flex">
+            <div>
+              <h2 class="card-title">Live Distance Telemetry</h2>
+              <p class="card-subtitle">Real-time distance readings over time (updates every 3 seconds)</p>
+            </div>
+            <div class="chart-badge">Chart.js</div>
+          </div>
+          <div class="chart-container">
+            <canvas id="readingsChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Recent Readings Table Card -->
+        <div class="card table-card">
+          <div class="card-header-flex">
+            <div>
+              <h2 class="card-title">Recent Sensor Readings</h2>
+              <p class="card-subtitle">Live database entries from PostgreSQL table <code>sensor_readings</code></p>
+            </div>
+            <button class="btn-text" onclick="fetchData()">Refresh Now</button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Timestamp (UTC / Local)</th>
+                  <th>Device</th>
+                  <th>Distance (cm)</th>
+                  <th>Food Status</th>
+                </tr>
+              </thead>
+              <tbody id="readings-table-body">
+                <tr>
+                  <td colspan="5" class="table-empty">Connecting to backend server...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>MCA College Assignment &bull; IoT-Based Automatic Fish Feeder System</p>
+      <p class="footer-links">
+        <a href="/docs" target="_blank">FastAPI Swagger Docs</a> &bull;
+        <a href="/health" target="_blank">Backend Health</a> &bull;
+        <a href="/api/stats" target="_blank">Raw Stats JSON</a>
+      </p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
